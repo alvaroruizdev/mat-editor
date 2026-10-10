@@ -56,13 +56,53 @@ const material = new THREE.MeshPhysicalMaterial({
 const mesh = new THREE.Mesh(geometry, material);
 scene.add(mesh);
 
-// --- 3. Luz ---------------------------------------------------------------
-const light = new THREE.DirectionalLight(0xffffff, 1);
-light.position.set(5, 5, 5);
-scene.add(light);
-
-// --- 4. GUI ---------------------------------------------------------------
+// --- GUI ---
 const gui = new GUI();
+
+
+// --- 3. Luces ---------------------------------------------------------------
+// Light manager
+const lights = [];
+const lightFolders = [];
+
+function createPointLight(idx) {
+  const l = new THREE.PointLight(0xffffff, 1, 0, 2);
+  // Place on a circle around origin
+  const angle = (idx / 4) * Math.PI * 2;
+  l.position.set(Math.cos(angle) * 4, Math.sin(angle) * 4, 2);
+  scene.add(l);
+  return l;
+}
+
+function updateLightFolders() {
+  // Remove previous folders
+  lightFolders.forEach(f => gui.removeFolder(f));
+  lightFolders.length = 0;
+  lights.forEach((l, i) => {
+    const lf = gui.addFolder(`Light ${i}`);
+    lf.addColor(l, 'color').onChange(() => { l.needsUpdate = true; });
+    lf.add(l, 'intensity', 0, 5).onChange(() => { l.needsUpdate = true; });
+    lf.add(l.position, 'x', -10, 10).onChange(() => { l.needsUpdate = true; });
+    lf.add(l.position, 'y', -10, 10).onChange(() => { l.needsUpdate = true; });
+    lf.add(l.position, 'z', -10, 10).onChange(() => { l.needsUpdate = true; });
+    lf.open();
+    lightFolders.push(lf);
+  });
+}
+
+function adjustLights(count) {
+  while (lights.length > count) {
+    scene.remove(lights.pop());
+  }
+  while (lights.length < count) {
+    lights.push(createPointLight(lights.length));
+  }
+  updateLightFolders();
+}
+
+// Default 4 lights
+adjustLights(4);
+
 
 const matFolder = gui.addFolder('Base Material');
 matFolder.addColor(material, 'color').onChange(()=>{material.needsUpdate = true;});
@@ -91,13 +131,39 @@ iridFolder.add(iridMat, 'iridiscenceIOR', 1, 3).onChange(()=>{iridMat.needsUpdat
 iridFolder.add(iridMat, 'roughness', 0, 1).onChange(()=>{iridMat.needsUpdate = true;});
 iridFolder.add(iridMat, 'metalness', 0, 1).onChange(()=>{iridMat.needsUpdate = true;});
 iridFolder.open();
+// --- 6. Gizmos toggle ----------------------------------------------
+const gizmoControl = {
+  gizmos: true
+};
+gui.add(gizmoControl, 'gizmos').name('Show Gizmos').onChange(v => {
+  // Toggle visibility of light helpers
+  lightFolders.forEach(f => f.domElement.parentElement.parentElement.style.display = v ? 'block' : 'none');
+});
 
-// --- 6. Animación ------------------------------------------------------------
+// Simple light helper for each point light
+lights.forEach((l, i) => {
+  const helper = new THREE.PointLightHelper(l, 0.2);
+  scene.add(helper);
+  // Store helper for toggling
+  l.helper = helper;
+});
+
+// Update helpers on each frame
+// Update helpers on each frame – single animation loop
 function animate() {
   requestAnimationFrame(animate);
   mesh.rotation.y += 0.01;
+  lights.forEach(l => l.helper.update());
   renderer.render(scene, camera);
 }
+// --- 5. Light count control ----------------------------------------------
+const lightControl = {
+  count: lights.length
+};
+gui.add(lightControl, 'count', 1, 10, 1).name('Number of lights').onChange(v => adjustLights(v));
+
+// --- 6. Animación ------------------------------------------------------------
+// Start animation
 animate();
 
 // --- 7. Ajustar tamaño al redimensionar --------------------------------------
@@ -107,6 +173,17 @@ window.addEventListener('resize', () => {
   camera.aspect = w/h;
   camera.updateProjectionMatrix();
 });
+
+// --- 8. Material ELEGIDO ----------------------------------------------
+const chosen = {
+  material: 'base' // 'base' or 'iridiscente'
+};
+const materialFolder = gui.addFolder('MATERIAL ELEGIDO');
+materialFolder.add(chosen, 'material', ['base', 'iridiscente']).onChange(v => {
+  mesh.material = v === 'base' ? material : iridMat;
+});
+materialFolder.open();
+
 </script>
 </body>
 </html>

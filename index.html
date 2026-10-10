@@ -30,6 +30,7 @@
 import * as THREE from "three";
 import { GLTFLoader } from "three/addons/loaders/GLTFLoader.js";
 import { OrbitControls } from "three/addons/controls/OrbitControls.js";
+// import { SpotLightHelper } from "three/addons/helpers/SpotLightHelper.js";
 import { GUI } from 'lil-gui';
 
 // --- 1. Renderizador y escena -------------------------------------------------
@@ -77,16 +78,41 @@ const gui = new GUI();
 
 
 // --- 3. Luces ---------------------------------------------------------------
-// Light manager
+// Light manager – group of spotlights
 const lights = [];
 const lightFolders = [];
+const lightGroup = new THREE.Group();
+scene.add(lightGroup);
 
-function createPointLight(idx) {
-  const l = new THREE.PointLight(0xffffff, 1, 0, 2);
-  // Place on a circle around origin
-  const angle = (idx / 4) * Math.PI * 2;
-  l.position.set(Math.cos(angle) * 4, Math.sin(angle) * 4, 2);
-  scene.add(l);
+function createSpotLight(idx) {
+  const l = new THREE.SpotLight(0xffffff, 1, 0, Math.PI / 6, 0.5, 2);
+  // Place on a square around origin – top, right, bottom, left
+  const positions = [
+    {x: -4, z: 4},
+    {x: 4, z: 4},
+    {x: 4, z: -4},
+    {x: -4, z: -4}
+  ];
+  const p = positions[idx % positions.length];
+  l.position.set(p.x, 2, p.z);
+  lightGroup.add(l);
+
+  // Apuntar la luz hacia el centro (origen 0,0,0)
+  l.target.position.set(0, 0, 0);
+  scene.add(l.target);
+  lightGroup.add(l);
+
+  // A. Gizmo avanzado: Cono que muestra el alcance y apertura de la luz Spot
+  const helper = new THREE.SpotLightHelper(l, 0xffffff);
+  scene.add(helper);
+  l.helper = helper;
+
+  // B. Esfera pequeña en el foco para ver el punto exacto de la luz
+  const sphereGeo = new THREE.SphereGeometry(0.15, 16, 16);
+  const sphereMat = new THREE.MeshBasicMaterial({ color: 0xffffff });
+  const sphere = new THREE.Mesh(sphereGeo, sphereMat);
+  l.add(sphere); // Se añade como hijo de la luz para que se mueva con ella
+
   return l;
 }
 
@@ -108,10 +134,10 @@ function updateLightFolders() {
 
 function adjustLights(count) {
   while (lights.length > count) {
-    scene.remove(lights.pop());
+    lightGroup.remove(lights.pop());
   }
   while (lights.length < count) {
-    lights.push(createPointLight(lights.length));
+    lights.push(createSpotLight(lights.length));
   }
   updateLightFolders();
 }
@@ -148,13 +174,16 @@ iridFolder.add(iridMat, 'roughness', 0, 1).onChange(()=>{iridMat.needsUpdate = t
 iridFolder.add(iridMat, 'metalness', 0, 1).onChange(()=>{iridMat.needsUpdate = true;});
 iridFolder.open();
 // --- 6. Gizmos toggle ----------------------------------------------
-const gizmoControl = {
-  gizmos: true
-};
-gui.add(gizmoControl, 'gizmos').name('Show Gizmos').onChange(v => {
-  // Toggle visibility of light helpers
-  lightFolders.forEach(f => f.domElement.parentElement.parentElement.style.display = v ? 'block' : 'none');
-});
+// Gizmo toggle – not part of GUI
+let gizmoVisible = true;
+function toggleGizmo(value) {
+  gizmoVisible = value;
+  lights.forEach(l => {
+    if (l.helper) l.helper.visible = gizmoVisible;
+  });
+}
+// Add custom GUI control but not part of gui folder
+gui.add({ gizmoToggle: () => toggleGizmo(!gizmoVisible) }, 'gizmoToggle').name('Toggle Gizmos');
 
 // Simple light helper for each point light
 lights.forEach((l, i) => {
@@ -164,13 +193,20 @@ lights.forEach((l, i) => {
   l.helper = helper;
 });
 
-// Update helpers on each frame
 // Update helpers on each frame – single animation loop
-
+const controls = new OrbitControls(camera, renderer.domElement);
 function animate() {
   requestAnimationFrame(animate);
   if (modelMesh) modelMesh.rotation.y += 0.005;
-  lights.forEach(l => l.helper.update());
+  
+  // Comprobación de seguridad para evitar que falle si un helper es undefined
+  lights.forEach(l => { 
+    if (l.helper && typeof l.helper.update === 'function') {
+      l.helper.update(); 
+    }
+  });
+
+  controls.update();
   renderer.render(scene, camera);
 }
 // --- 5. Light count control ----------------------------------------------

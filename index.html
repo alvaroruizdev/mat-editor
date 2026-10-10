@@ -8,7 +8,6 @@
       body { margin: 0; overflow: hidden; background-color: #111; font-family: sans-serif; }
       #canvas { display: block; }
       
-      /* Contenedor para el inspector visual de texturas arriba a la izquierda */
       #texture-inspector-container {
         position: fixed;
         top: 15px;
@@ -30,7 +29,6 @@
         font-weight: bold;
         letter-spacing: 0.5px;
       }
-      /* Estilo estricto para el canvas clonado en el inspector */
       #texture-inspector-container canvas {
         width: 120px !important;
         height: 120px !important;
@@ -44,7 +42,6 @@
 
 <div id="texture-inspector-container">
   <span>INSPECTOR DE TEXTURA</span>
-  <!-- El canvas del inspector se inyectará aquí -->
 </div>
 
 <canvas id="canvas"></canvas>
@@ -81,12 +78,12 @@ scene.add(camera);
 const controls = new OrbitControls(camera, renderer.domElement);
 controls.enableDamping = true;
 
-// --- 2. Generadores de Texturas Procedurales ----------------------------------
+// --- 2. Generadores de Texturas Procedurales (Corregidos y limpios) ------------
 const textureSettings = {
   radial: {
-    innerRadius: 50,
-    outerRadius: 250,
-    colorCenter: '#fefefe',
+    innerRadius: 10,
+    outerRadius: 200,
+    colorCenter: '#ffffff',
     colorMiddle: '#00eeff',
     colorOuter: '#da8aff'
   },
@@ -107,24 +104,31 @@ gradientCanvas.height = 256;
 
 function updateRadialCanvas() {
   const ctx = radialCanvas.getContext('2d');
+  ctx.clearRect(0, 0, 512, 512); // Limpiar canvas antes de dibujar
+
   const grad = ctx.createRadialGradient(256, 256, textureSettings.radial.innerRadius, 256, 256, textureSettings.radial.outerRadius);
   grad.addColorStop(0.0, textureSettings.radial.colorCenter);
-  grad.addColorStop(0.9, textureSettings.radial.colorMiddle);
+  grad.addColorStop(0.5, textureSettings.radial.colorMiddle);
   grad.addColorStop(1.0, textureSettings.radial.colorOuter);
+  
   ctx.fillStyle = grad;
   ctx.fillRect(0, 0, 512, 512);
 }
 
 function updateGradientCanvas() {
   const ctx = gradientCanvas.getContext('2d');
+  ctx.clearRect(0, 0, 16, 256); // Limpiar canvas antes de dibujar
+
   const grad = ctx.createLinearGradient(0, 0, 0, 256);
-  grad.addColorStop(0.1, textureSettings.gradient.stop1Color);
-  grad.addColorStop(0.4, textureSettings.gradient.stop2Color);
-  grad.addColorStop(0.9, textureSettings.gradient.stop3Color);
+  grad.addColorStop(0.0, textureSettings.gradient.stop1Color);
+  grad.addColorStop(0.5, textureSettings.gradient.stop2Color);
+  grad.addColorStop(1.0, textureSettings.gradient.stop3Color);
+  
   ctx.fillStyle = grad;
   ctx.fillRect(0, 0, 16, 256);
 }
 
+// Inicializar texturas con datos válidos
 updateRadialCanvas();
 updateGradientCanvas();
 
@@ -187,15 +191,19 @@ function updateInspectorView() {
 
   if (targetTexType === 'radial') {
     currentInspectedCanvas = radialCanvas.cloneNode(true);
+    // Forzar redibujo inmediato del clon para asegurar visibilidad
+    const clonedCtx = currentInspectedCanvas.getContext('2d');
+    clonedCtx.drawImage(radialCanvas, 0, 0);
   } else if (targetTexType === 'gradient') {
     currentInspectedCanvas = gradientCanvas.cloneNode(true);
+    const clonedCtx = currentInspectedCanvas.getContext('2d');
+    clonedCtx.drawImage(gradientCanvas, 0, 0);
   }
 
   if (currentInspectedCanvas) {
     inspectorContainer.appendChild(currentInspectedCanvas);
     inspectorContainer.style.display = 'flex';
   } else {
-    // Si no hay textura seleccionada, ocultamos el inspector completo o mostramos solo cabecera según prefieras
     inspectorContainer.style.display = 'flex'; 
   }
 }
@@ -257,7 +265,6 @@ function createSpotLight(idx) {
   scene.add(l.target);
   lightGroup.add(l);
 
-  // SpotLightHelper creado directamente con THREE sin imports externos
   const helper = new THREE.SpotLightHelper(l, 0xffffff);
   helper.visible = lightSettings.gizmosVisible;
   scene.add(helper);

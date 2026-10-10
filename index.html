@@ -2,12 +2,12 @@
 <html lang="es">
 <head>
     <link rel="icon" href="data:,">
-<meta charset="utf-8">
-<title>Editor de Materiales - Three.js + lil‑gui</title>
-<style>
-  body{margin:0;overflow:hidden}
-  #canvas{display:block}
-</style>
+    <meta charset="utf-8">
+    <title>Editor de Materiales y Texturas - Three.js + lil-gui</title>
+    <style>
+      body { margin: 0; overflow: hidden; background-color: #111; }
+      #canvas { display: block; }
+    </style>
 </head>
 <body>
 <canvas id="canvas"></canvas>
@@ -28,10 +28,11 @@ import { GLTFLoader } from "three/addons/loaders/GLTFLoader.js";
 import { OrbitControls } from "three/addons/controls/OrbitControls.js";
 import { GUI } from 'lil-gui';
 
-// --- 1. Renderizador y escena -------------------------------------------------
+// --- 1. Renderizador y Escena -------------------------------------------------
 const canvas = document.getElementById('canvas');
-const renderer = new THREE.WebGLRenderer({canvas});
+const renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
 renderer.setSize(window.innerWidth, window.innerHeight);
+renderer.toneMapping = THREE.ACESFilmicToneMapping;
 
 const scene = new THREE.Scene();
 scene.background = new THREE.Color(0x111111);
@@ -42,25 +43,95 @@ scene.add(camera);
 
 // Controles de órbita
 const controls = new OrbitControls(camera, renderer.domElement);
+controls.enableDamping = true;
 
-// --- 2. Cargar modelo y materiales ------------------------------------------
+// --- 2. Generadores de Texturas Procedurales ----------------------------------
+const textureSettings = {
+  active: 'ninguna', // 'ninguna', 'radial', 'gradient'
+  radial: {
+    innerRadius: 50,
+    outerRadius: 250,
+    colorCenter: '#fefefe',
+    colorMiddle: '#00eeff',
+    colorOuter: '#da8aff'
+  },
+  gradient: {
+    stop1Color: '#ae00ff',
+    stop2Color: '#0755fe',
+    stop3Color: '#ffffff'
+  }
+};
+
+function createRadialTexture() {
+  const c = document.createElement('canvas');
+  c.width = 512;
+  c.height = 512;
+  const ctx = c.getContext('2d');
+  const grad = ctx.createRadialGradient(256, 256, textureSettings.radial.innerRadius, 256, 256, textureSettings.radial.outerRadius);
+  grad.addColorStop(0.0, textureSettings.radial.colorCenter);
+  grad.addColorStop(0.9, textureSettings.radial.colorMiddle);
+  grad.addColorStop(1.0, textureSettings.radial.colorOuter);
+  ctx.fillStyle = grad;
+  ctx.fillRect(0, 0, 512, 512);
+
+  const tex = new THREE.CanvasTexture(c);
+  tex.colorSpace = THREE.SRGBColorSpace;
+  return tex;
+}
+
+function createGradientTexture() {
+  const c = document.createElement('canvas');
+  c.width = 16;
+  c.height = 256;
+  const ctx = c.getContext('2d');
+  const grad = ctx.createLinearGradient(0, 0, 0, 256);
+  grad.addColorStop(0.1, textureSettings.gradient.stop1Color);
+  grad.addColorStop(0.4, textureSettings.gradient.stop2Color);
+  grad.addColorStop(0.9, textureSettings.gradient.stop3Color);
+  ctx.fillStyle = grad;
+  ctx.fillRect(0, 0, 16, 256);
+
+  const tex = new THREE.CanvasTexture(c);
+  tex.colorSpace = THREE.SRGBColorSpace;
+  return tex;
+}
+
+let radialTex = createRadialTexture();
+let gradientTex = createGradientTexture();
+
+function refreshMaterialTextures() {
+  let selectedTex = null;
+  if (textureSettings.active === 'radial') selectedTex = radialTex;
+  if (textureSettings.active === 'gradient') selectedTex = gradientTex;
+
+  material.map = selectedTex;
+  material.needsUpdate = true;
+  iridMat.map = selectedTex;
+  iridMat.needsUpdate = true;
+}
+
+// --- 3. Materiales y Modelo -------------------------------------------------
 const material = new THREE.MeshPhysicalMaterial({
   color: 0xffffff,
   transmission: 0.5,
   ior: 1.5,
-  roughness: 0.5,
-  metalness: 0.5
+  roughness: 0.2,
+  metalness: 0.1,
+  specularIntensity: 1.0,
+  specularColor: new THREE.Color(0xffffff)
 });
 
 const iridMat = new THREE.MeshPhysicalMaterial({
   color: 0xffffff,
-  transmission: 0.5,
+  transmission: 0.2,
   ior: 1.5,
-  roughness: 0.5,
-  metalness: 0.5
+  roughness: 0.1,
+  metalness: 0.0,
+  iridescence: 0.8,
+  iridescenceIOR: 1.6,
+  specularIntensity: 1.0,
+  specularColor: new THREE.Color(0xffffff)
 });
-iridMat.iridescence = 0.5;
-iridMat.iridescenceIOR = 1.4;
 
 const chosen = { material: 'base' };
 
@@ -74,33 +145,32 @@ loader.load('metaballs.glb', gltf => {
   modelMesh.position.sub(center);
   scene.add(modelMesh);
   
-  if (modelMesh.children.length) {
-    modelMesh.children.forEach(c => { 
-      if (c.isMesh) c.material = chosen.material === 'base' ? material : iridMat; 
-    });
-  }
-}, undefined, err => console.error(err));
+  applySelectedMaterial();
+}, undefined, err => console.error("Error al cargar GLB:", err));
 
-// --- GUI PRINCIPAL ---
-const gui = new GUI();
+function applySelectedMaterial() {
+  if (!modelMesh) return;
+  const activeMat = chosen.material === 'base' ? material : iridMat;
+  modelMesh.traverse(c => {
+    if (c.isMesh) c.material = activeMat;
+  });
+}
 
-// --- 3. Sistema de Luces y Agrupación en Carpeta ------------------------------
+// --- 4. Sistema de Luces y Agrupación en Carpeta ------------------------------
 const lights = [];
 const lightFolders = [];
 const lightGroup = new THREE.Group();
 scene.add(lightGroup);
 
-// Carpeta principal que agrupa TODAS las opciones de luces
+const gui = new GUI();
 const lightsMainFolder = gui.addFolder('Iluminación');
 
-// Control de estado para los gizmos (checkbox)
-const settings = {
+const lightSettings = {
   gizmosVisible: true,
   lightCount: 4
 };
 
-// Checkbox para activar/desactivar gizmos dentro de la carpeta de luces
-lightsMainFolder.add(settings, 'gizmosVisible').name('Mostrar Gizmos').onChange(value => {
+lightsMainFolder.add(lightSettings, 'gizmosVisible').name('Mostrar Gizmos').onChange(value => {
   lights.forEach(l => {
     if (l.helper) l.helper.visible = value;
   });
@@ -116,18 +186,15 @@ function createSpotLight(idx) {
   ];
   const p = positions[idx % positions.length];
   l.position.set(p.x, 3, p.z);
-  
   l.target.position.set(0, 0, 0);
   scene.add(l.target);
   lightGroup.add(l);
 
-  // SpotLightHelper profesional
   const helper = new THREE.SpotLightHelper(l, 0xffffff);
-  helper.visible = settings.gizmosVisible; // Respeta el estado actual del checkbox
+  helper.visible = lightSettings.gizmosVisible;
   scene.add(helper);
   l.helper = helper;
 
-  // Esfera indicadora en el foco
   const sphereGeo = new THREE.SphereGeometry(0.15, 16, 16);
   const sphereMat = new THREE.MeshBasicMaterial({ color: 0xffffff });
   const sphere = new THREE.Mesh(sphereGeo, sphereMat);
@@ -137,19 +204,17 @@ function createSpotLight(idx) {
 }
 
 function updateLightFolders() {
-  // Limpiar carpetas anteriores de forma segura con .destroy()
   lightFolders.forEach(f => f.destroy());
   lightFolders.length = 0;
 
   lights.forEach((l, i) => {
-    // AQUÍ ESTÁ LA CLAVE: Se añaden COMO HIJAS de `lightsMainFolder` (desplegable)
     const lf = lightsMainFolder.addFolder(`Luz ${i + 1}`);
     lf.addColor(l, 'color').onChange(() => { l.color.set(l.color); });
     lf.add(l, 'intensity', 0, 10).onChange(v => l.intensity = v);
     lf.add(l.position, 'x', -10, 10);
     lf.add(l.position, 'y', -10, 10);
     lf.add(l.position, 'z', -10, 10);
-    lf.close(); // Se cierran por defecto para que esté ordenado
+    lf.close();
     lightFolders.push(lf);
   });
 }
@@ -158,6 +223,7 @@ function adjustLights(count) {
   while (lights.length > count) {
     const l = lights.pop();
     lightGroup.remove(l);
+    if (l.target) scene.remove(l.target);
     if (l.helper) {
       scene.remove(l.helper);
       l.helper.dispose();
@@ -169,42 +235,54 @@ function adjustLights(count) {
   updateLightFolders();
 }
 
-// Slider para cambiar la cantidad de luces de 1 a 10 dentro de la carpeta
-lightsMainFolder.add(settings, 'lightCount', 1, 10, 1).name('Cantidad de luces').onChange(v => adjustLights(v));
-
+lightsMainFolder.add(lightSettings, 'lightCount', 1, 10, 1).name('Cantidad de luces').onChange(v => adjustLights(v));
 lightsMainFolder.open();
-
-// Inicializar con 4 luces por defecto
 adjustLights(4);
 
-// --- 4. Controles de Materiales ---------------------------------------------
+// --- 5. Controles de Texturas en GUI ------------------------------------------
+const texFolder = gui.addFolder('Texturas Procedurales');
+texFolder.add(textureSettings, 'active', ['ninguna', 'radial', 'gradient']).name('Asignar al Material').onChange(refreshMaterialTextures);
+
+const radFolder = texFolder.addFolder('Radial Config');
+radFolder.add(textureSettings.radial, 'innerRadius', 0, 200).onChange(() => { radialTex = createRadialTexture(); refreshMaterialTextures(); });
+radFolder.add(textureSettings.radial, 'outerRadius', 50, 400).onChange(() => { radialTex = createRadialTexture(); refreshMaterialTextures(); });
+radFolder.addColor(textureSettings.radial, 'colorCenter').onChange(() => { radialTex = createRadialTexture(); refreshMaterialTextures(); });
+radFolder.addColor(textureSettings.radial, 'colorMiddle').onChange(() => { radialTex = createRadialTexture(); refreshMaterialTextures(); });
+radFolder.addColor(textureSettings.radial, 'colorOuter').onChange(() => { radialTex = createRadialTexture(); refreshMaterialTextures(); });
+
+const gradFolder = texFolder.addFolder('Gradient Config');
+gradFolder.addColor(textureSettings.gradient, 'stop1Color').onChange(() => { gradientTex = createGradientTexture(); refreshMaterialTextures(); });
+gradFolder.addColor(textureSettings.gradient, 'stop2Color').onChange(() => { gradientTex = createGradientTexture(); refreshMaterialTextures(); });
+gradFolder.addColor(textureSettings.gradient, 'stop3Color').onChange(() => { gradientTex = createGradientTexture(); refreshMaterialTextures(); });
+texFolder.close();
+
+// --- 6. Controles de Materiales en GUI ----------------------------------------
+const matChoiceFolder = gui.addFolder('MATERIAL ELEGIDO');
+matChoiceFolder.add(chosen, 'material', ['base', 'iridiscente']).onChange(() => applySelectedMaterial());
+matChoiceFolder.open();
+
 const matFolder = gui.addFolder('Base Material');
 matFolder.addColor(material, 'color');
 matFolder.add(material, 'transmission', 0, 1);
 matFolder.add(material, 'ior', 1, 3);
 matFolder.add(material, 'roughness', 0, 1);
 matFolder.add(material, 'metalness', 0, 1);
+matFolder.add(material, 'specularIntensity', 0, 1);
+matFolder.addColor(material, 'specularColor');
 matFolder.close();
 
 const iridFolder = gui.addFolder('Iridiscente Mat');
 iridFolder.addColor(iridMat, 'color');
-iridFolder.add(iridMat, 'iridescence', 0, 1);
-iridFolder.add(iridMat, 'iridescenceIOR', 1, 3);
+iridFolder.add(iridMat, 'iridescence', 0, 1).name('Iridiscencia');
+iridFolder.add(iridMat, 'iridescenceIOR', 1, 3).name('Iridiscent IOR');
+iridFolder.add(iridMat, 'transmission', 0, 1);
 iridFolder.add(iridMat, 'roughness', 0, 1);
 iridFolder.add(iridMat, 'metalness', 0, 1);
+iridFolder.add(iridMat, 'specularIntensity', 0, 1);
+iridFolder.addColor(iridMat, 'specularColor');
 iridFolder.close();
 
-const materialFolder = gui.addFolder('MATERIAL ELEGIDO');
-materialFolder.add(chosen, 'material', ['base', 'iridiscente']).onChange(v => {
-  if (modelMesh && modelMesh.children) {
-    modelMesh.children.forEach(c => { 
-      if (c.isMesh) c.material = v === 'base' ? material : iridMat; 
-    });
-  }
-});
-materialFolder.open();
-
-// --- 5. Bucle de Animación --------------------------------------------------
+// --- 7. Bucle de Animación ----------------------------------------------------
 function animate() {
   requestAnimationFrame(animate);
   if (modelMesh) modelMesh.rotation.y += 0.005;
@@ -220,7 +298,7 @@ function animate() {
 }
 animate();
 
-// --- 6. Redimensionar ventana -----------------------------------------------
+// --- 8. Redimensionar ventana -------------------------------------------------
 window.addEventListener('resize', () => {
   const w = window.innerWidth, h = window.innerHeight;
   renderer.setSize(w, h);

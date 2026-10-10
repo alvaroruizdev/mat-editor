@@ -13,7 +13,7 @@
         top: 15px;
         left: 15px;
         z-index: 10000;
-        background: rgba(0, 0, 0, 1);
+        background: rgba(0, 0, 0, 0.85);
         padding: 8px;
         border-radius: 8px;
         border: 1px solid rgba(255, 255, 255, 0.2);
@@ -78,7 +78,7 @@ scene.add(camera);
 const controls = new OrbitControls(camera, renderer.domElement);
 controls.enableDamping = true;
 
-// --- 2. Generadores de Texturas Procedurales (Corregidos y limpios) ------------
+// --- 2. Generadores de Texturas Procedurales ----------------------------------
 const textureSettings = {
   radial: {
     innerRadius: 10,
@@ -104,7 +104,7 @@ gradientCanvas.height = 256;
 
 function updateRadialCanvas() {
   const ctx = radialCanvas.getContext('2d');
-  ctx.clearRect(0, 0, 512, 512); // Limpiar canvas antes de dibujar
+  ctx.clearRect(0, 0, 512, 512);
 
   const grad = ctx.createRadialGradient(256, 256, textureSettings.radial.innerRadius, 256, 256, textureSettings.radial.outerRadius);
   grad.addColorStop(0.0, textureSettings.radial.colorCenter);
@@ -117,7 +117,7 @@ function updateRadialCanvas() {
 
 function updateGradientCanvas() {
   const ctx = gradientCanvas.getContext('2d');
-  ctx.clearRect(0, 0, 16, 256); // Limpiar canvas antes de dibujar
+  ctx.clearRect(0, 0, 16, 256);
 
   const grad = ctx.createLinearGradient(0, 0, 0, 256);
   grad.addColorStop(0.0, textureSettings.gradient.stop1Color);
@@ -128,7 +128,6 @@ function updateGradientCanvas() {
   ctx.fillRect(0, 0, 16, 256);
 }
 
-// Inicializar texturas con datos válidos
 updateRadialCanvas();
 updateGradientCanvas();
 
@@ -137,8 +136,11 @@ radialTex.colorSpace = THREE.SRGBColorSpace;
 
 const gradientTex = new THREE.CanvasTexture(gradientCanvas);
 gradientTex.colorSpace = THREE.SRGBColorSpace;
+gradientTex.generateMipmaps = false;
+gradientTex.minFilter = THREE.LinearFilter;
+gradientTex.magFilter = THREE.LinearFilter;
 
-// --- 3. Materiales y Configuración de Textura Independiente ------------------
+// --- 3. Materiales y Configuración Inicial (Iridiscente con Radial por defecto) ---
 const baseMaterialConfig = { texture: 'ninguna' };
 const material = new THREE.MeshPhysicalMaterial({
   color: 0xffffff,
@@ -150,7 +152,7 @@ const material = new THREE.MeshPhysicalMaterial({
   specularColor: new THREE.Color(0xffffff)
 });
 
-const iridMatConfig = { texture: 'ninguna' };
+const iridMatConfig = { texture: 'radial' }; // Por defecto radial
 const iridMat = new THREE.MeshPhysicalMaterial({
   color: 0xffffff,
   transmission: 0.2,
@@ -162,13 +164,14 @@ const iridMat = new THREE.MeshPhysicalMaterial({
   specularIntensity: 1.0,
   specularColor: new THREE.Color(0xffffff)
 });
+iridMat.map = radialTex; // Asignación inicial por defecto
 
-const chosen = { material: 'base' };
+const chosen = { material: 'iridiscente' }; // Por defecto iridiscente
 
 function applyMaterialTexture(mat, config) {
   if (config.texture === 'radial') {
     mat.map = radialTex;
-  } else if (config.texture === 'gradient') {
+  } else if (config.texture === 'gradiente') {
     mat.map = gradientTex;
   } else {
     mat.map = null;
@@ -191,10 +194,9 @@ function updateInspectorView() {
 
   if (targetTexType === 'radial') {
     currentInspectedCanvas = radialCanvas.cloneNode(true);
-    // Forzar redibujo inmediato del clon para asegurar visibilidad
     const clonedCtx = currentInspectedCanvas.getContext('2d');
     clonedCtx.drawImage(radialCanvas, 0, 0);
-  } else if (targetTexType === 'gradient') {
+  } else if (targetTexType === 'gradiente') {
     currentInspectedCanvas = gradientCanvas.cloneNode(true);
     const clonedCtx = currentInspectedCanvas.getContext('2d');
     clonedCtx.drawImage(gradientCanvas, 0, 0);
@@ -231,67 +233,71 @@ function applySelectedMaterial() {
   updateInspectorView();
 }
 
-// --- 5. Sistema de Luces y Agrupación -----------------------------------------
+// --- 5. Sistema de Luces Globales ---------------------------------------------
 const lights = [];
-const lightFolders = [];
 const lightGroup = new THREE.Group();
 scene.add(lightGroup);
 
-const gui = new GUI();
-const lightsMainFolder = gui.addFolder('Iluminación');
-
-const lightSettings = {
+const lightGlobalSettings = {
   gizmosVisible: true,
-  lightCount: 4
+  count: 4,
+  color: '#ffffff',
+  intensity: 3,
+  angle: Math.PI / 6,
+  distance: 4, // Distancia al centro
+  textureType: 'gradiente' // Luces usan gradiente por defecto
 };
 
-lightsMainFolder.add(lightSettings, 'gizmosVisible').name('Mostrar Gizmos').onChange(value => {
-  lights.forEach(l => {
-    if (l.helper) l.helper.visible = value;
+const basePositions = [
+  {x: -1, z: 1},
+  {x: 1, z: 1},
+  {x: 1, z: -1},
+  {x: -1, z: -1}
+];
+
+function updateLightPositions() {
+  lights.forEach((l, idx) => {
+    const dir = basePositions[idx % basePositions.length];
+    // Normalizar dirección y aplicar la nueva distancia global
+    const len = Math.sqrt(dir.x * dir.x + dir.z * dir.z);
+    l.position.set((dir.x / len) * lightGlobalSettings.distance, 3, (dir.z / len) * lightGlobalSettings.distance);
   });
-});
+}
+
+function updateLightProperties() {
+  lights.forEach(l => {
+    l.color.set(lightGlobalSettings.color);
+    l.intensity = lightGlobalSettings.intensity;
+    l.angle = lightGlobalSettings.angle;
+    if (lightGlobalSettings.textureType === 'gradiente') {
+      l.map = gradientTex;
+    } else if (lightGlobalSettings.textureType === 'radial') {
+      l.map = radialTex;
+    } else {
+      l.map = null;
+    }
+    l.needsUpdate = true;
+  });
+}
 
 function createSpotLight(idx) {
-  const l = new THREE.SpotLight(0xffffff, 2, 15, Math.PI / 6, 0.5, 1);
-  const positions = [
-    {x: -4, z: 4},
-    {x: 4, z: 4},
-    {x: 4, z: -4},
-    {x: -4, z: -4}
-  ];
-  const p = positions[idx % positions.length];
-  l.position.set(p.x, 3, p.z);
+  const l = new THREE.SpotLight(lightGlobalSettings.color, lightGlobalSettings.intensity, 20, lightGlobalSettings.angle, 0.5, 1);
+  l.map = gradientTex; // Las luces usan la textura linear por defecto
+  
+  const dir = basePositions[idx % basePositions.length];
+  const len = Math.sqrt(dir.x * dir.x + dir.z * dir.z);
+  l.position.set((dir.x / len) * lightGlobalSettings.distance, 3, (dir.z / len) * lightGlobalSettings.distance);
+  
   l.target.position.set(0, 0, 0);
   scene.add(l.target);
   lightGroup.add(l);
 
   const helper = new THREE.SpotLightHelper(l, 0xffffff);
-  helper.visible = lightSettings.gizmosVisible;
+  helper.visible = lightGlobalSettings.gizmosVisible;
   scene.add(helper);
   l.helper = helper;
 
-  const sphereGeo = new THREE.SphereGeometry(0.15, 16, 16);
-  const sphereMat = new THREE.MeshBasicMaterial({ color: 0xffffff });
-  const sphere = new THREE.Mesh(sphereGeo, sphereMat);
-  l.add(sphere);
-
   return l;
-}
-
-function updateLightFolders() {
-  lightFolders.forEach(f => f.destroy());
-  lightFolders.length = 0;
-
-  lights.forEach((l, i) => {
-    const lf = lightsMainFolder.addFolder(`Luz ${i + 1}`);
-    lf.addColor(l, 'color').onChange(() => { l.color.set(l.color); });
-    lf.add(l, 'intensity', 0, 10).onChange(v => l.intensity = v);
-    lf.add(l.position, 'x', -10, 10);
-    lf.add(l.position, 'y', -10, 10);
-    lf.add(l.position, 'z', -10, 10);
-    lf.close();
-    lightFolders.push(lf);
-  });
 }
 
 function adjustLights(count) {
@@ -307,17 +313,30 @@ function adjustLights(count) {
   while (lights.length < count) {
     lights.push(createSpotLight(lights.length));
   }
-  updateLightFolders();
 }
 
-lightsMainFolder.add(lightSettings, 'lightCount', 1, 10, 1).name('Cantidad de luces').onChange(v => adjustLights(v));
-lightsMainFolder.open();
 adjustLights(4);
 
-// --- 6. Controles de Texturas Procedurales en GUI ------------------------------
-const texFolder = gui.addFolder('Generadores de Texturas');
+// --- 6. Interfaz GUI ----------------------------------------------------------
+const gui = new GUI();
 
-const radFolder = texFolder.addFolder('Config Radial');
+// A. Iluminación Global
+const lightsMainFolder = gui.addFolder('Iluminación');
+lightsMainFolder.add(lightGlobalSettings, 'gizmosVisible').name('Mostrar Gizmos').onChange(value => {
+  lights.forEach(l => { if (l.helper) l.helper.visible = value; });
+});
+lightsMainFolder.add(lightGlobalSettings, 'count', 1, 8, 1).name('Cantidad de luces').onChange(v => adjustLights(v));
+lightsMainFolder.addColor(lightGlobalSettings, 'color').name('Color Luces').onChange(updateLightProperties);
+lightsMainFolder.add(lightGlobalSettings, 'intensity', 0, 15).name('Intensidad').onChange(updateLightProperties);
+lightsMainFolder.add(lightGlobalSettings, 'angle', 0.1, Math.PI / 3).name('Ángulo Apertura').onChange(updateLightProperties);
+lightsMainFolder.add(lightGlobalSettings, 'distance', 1, 10).name('Distancia al Centro').onChange(updateLightPositions);
+lightsMainFolder.add(lightGlobalSettings, 'textureType', ['ninguna', 'radial', 'gradiente']).name('Textura Emisión').onChange(updateLightProperties);
+lightsMainFolder.open();
+
+// B. Texturas (Nombres solicitados: Texturas, Radial, Gradiente)
+const texFolder = gui.addFolder('Texturas');
+
+const radFolder = texFolder.addFolder('Radial');
 radFolder.add(textureSettings.radial, 'innerRadius', 0, 200).onChange(() => { updateRadialCanvas(); radialTex.needsUpdate = true; updateInspectorView(); });
 radFolder.add(textureSettings.radial, 'outerRadius', 50, 400).onChange(() => { updateRadialCanvas(); radialTex.needsUpdate = true; updateInspectorView(); });
 radFolder.addColor(textureSettings.radial, 'colorCenter').onChange(() => { updateRadialCanvas(); radialTex.needsUpdate = true; updateInspectorView(); });
@@ -325,21 +344,21 @@ radFolder.addColor(textureSettings.radial, 'colorMiddle').onChange(() => { updat
 radFolder.addColor(textureSettings.radial, 'colorOuter').onChange(() => { updateRadialCanvas(); radialTex.needsUpdate = true; updateInspectorView(); });
 radFolder.close();
 
-const gradFolder = texFolder.addFolder('Config Gradient');
+const gradFolder = texFolder.addFolder('Gradiente');
 gradFolder.addColor(textureSettings.gradient, 'stop1Color').onChange(() => { updateGradientCanvas(); gradientTex.needsUpdate = true; updateInspectorView(); });
 gradFolder.addColor(textureSettings.gradient, 'stop2Color').onChange(() => { updateGradientCanvas(); gradientTex.needsUpdate = true; updateInspectorView(); });
 gradFolder.addColor(textureSettings.gradient, 'stop3Color').onChange(() => { updateGradientCanvas(); gradientTex.needsUpdate = true; updateInspectorView(); });
 gradFolder.close();
 texFolder.close();
 
-// --- 7. Controles de Materiales en GUI ----------------------------------------
+// C. Materiales
 const matChoiceFolder = gui.addFolder('MATERIAL ELEGIDO');
 matChoiceFolder.add(chosen, 'material', ['base', 'iridiscente']).onChange(() => applySelectedMaterial());
 matChoiceFolder.open();
 
 const matFolder = gui.addFolder('Base Material');
 matFolder.addColor(material, 'color');
-matFolder.add(baseMaterialConfig, 'texture', ['ninguna', 'radial', 'gradient']).name('Textura').onChange(() => {
+matFolder.add(baseMaterialConfig, 'texture', ['ninguna', 'radial', 'gradiente']).name('Textura').onChange(() => {
   applyMaterialTexture(material, baseMaterialConfig);
 });
 matFolder.add(material, 'transmission', 0, 1);
@@ -352,7 +371,7 @@ matFolder.close();
 
 const iridFolder = gui.addFolder('Iridiscente Mat');
 iridFolder.addColor(iridMat, 'color');
-iridFolder.add(iridMatConfig, 'texture', ['ninguna', 'radial', 'gradient']).name('Textura').onChange(() => {
+iridFolder.add(iridMatConfig, 'texture', ['ninguna', 'radial', 'gradiente']).name('Textura').onChange(() => {
   applyMaterialTexture(iridMat, iridMatConfig);
 });
 iridFolder.add(iridMat, 'iridescence', 0, 1).name('Iridiscencia');
@@ -366,7 +385,7 @@ iridFolder.close();
 
 updateInspectorView();
 
-// --- 8. Bucle de Animación ----------------------------------------------------
+// --- 7. Bucle de Animación ----------------------------------------------------
 function animate() {
   requestAnimationFrame(animate);
   if (modelMesh) modelMesh.rotation.y += 0.005;
@@ -382,7 +401,7 @@ function animate() {
 }
 animate();
 
-// --- 9. Redimensionar ventana -------------------------------------------------
+// --- 8. Redimensionar ventana -------------------------------------------------
 window.addEventListener('resize', () => {
   const w = window.innerWidth, h = window.innerHeight;
   renderer.setSize(w, h);

@@ -12,15 +12,11 @@
 <body>
 <canvas id="canvas"></canvas>
 
-<!-- Three.js (latest) -->
-<!-- <script src="https://cdn.jsdelivr.net/npm/three@0.162.0/build/three.min.js"></script>
-<!-- lil‑gui -->
-<!-- <script src="https://cdn.jsdelivr.net/npm/lil-gui@0.18.0/dist/lil-gui.min.js"></script> --> 
 <script type="importmap">
 {
   "imports": {
     "three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js",
-"three/addons/": "https://cdn.jsdelivr.net/npm/three@0.162.0/examples/jsm/",
+    "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.162.0/examples/jsm/",
     "lil-gui": "https://cdn.jsdelivr.net/npm/lil-gui@0.21.0/dist/lil-gui.esm.min.js"
   }
 }
@@ -30,7 +26,6 @@
 import * as THREE from "three";
 import { GLTFLoader } from "three/addons/loaders/GLTFLoader.js";
 import { OrbitControls } from "three/addons/controls/OrbitControls.js";
-// import { SpotLightHelper } from "three/addons/helpers/SpotLightHelper.js";
 import { GUI } from 'lil-gui';
 
 // --- 1. Renderizador y escena -------------------------------------------------
@@ -45,8 +40,10 @@ const camera = new THREE.PerspectiveCamera(45, window.innerWidth / window.innerH
 camera.position.set(0, 0, 5);
 scene.add(camera);
 
-// --- 2. Cargar modelo -------------------------------------------------------
-// Base material – only properties that exist in r152
+// Controles de órbita
+const controls = new OrbitControls(camera, renderer.domElement);
+
+// --- 2. Cargar modelo y materiales ------------------------------------------
 const material = new THREE.MeshPhysicalMaterial({
   color: 0xffffff,
   transmission: 0.5,
@@ -55,107 +52,6 @@ const material = new THREE.MeshPhysicalMaterial({
   metalness: 0.5
 });
 
-
-
-const loader = new GLTFLoader();
-let modelMesh;
-loader.load('metaballs.glb', gltf => {
-  modelMesh = gltf.scene;
-  // center model
-  const box = new THREE.Box3().setFromObject(modelMesh);
-  const center = new THREE.Vector3();
-  box.getCenter(center);
-  modelMesh.position.sub(center);
-  scene.add(modelMesh);
-  // apply current material if chosen
-  if (modelMesh.children.length) {
-    modelMesh.children.forEach(c => { if (c.isMesh) c.material = chosen.material === 'base' ? material : iridMat; });
-  }
-}, undefined, err => console.error(err));
-
-// --- GUI ---
-const gui = new GUI();
-
-
-// --- 3. Luces ---------------------------------------------------------------
-// Light manager – group of spotlights
-const lights = [];
-const lightFolders = [];
-const lightGroup = new THREE.Group();
-scene.add(lightGroup);
-
-function createSpotLight(idx) {
-  const l = new THREE.SpotLight(0xffffff, 1, 0, Math.PI / 6, 0.5, 2);
-  // Place on a square around origin – top, right, bottom, left
-  const positions = [
-    {x: -4, z: 4},
-    {x: 4, z: 4},
-    {x: 4, z: -4},
-    {x: -4, z: -4}
-  ];
-  const p = positions[idx % positions.length];
-  l.position.set(p.x, 2, p.z);
-  lightGroup.add(l);
-
-  // Apuntar la luz hacia el centro (origen 0,0,0)
-  l.target.position.set(0, 0, 0);
-  scene.add(l.target);
-  lightGroup.add(l);
-
-  // A. Gizmo avanzado: Cono que muestra el alcance y apertura de la luz Spot
-  const helper = new THREE.SpotLightHelper(l, 0xffffff);
-  scene.add(helper);
-  l.helper = helper;
-
-  // B. Esfera pequeña en el foco para ver el punto exacto de la luz
-  const sphereGeo = new THREE.SphereGeometry(0.15, 16, 16);
-  const sphereMat = new THREE.MeshBasicMaterial({ color: 0xffffff });
-  const sphere = new THREE.Mesh(sphereGeo, sphereMat);
-  l.add(sphere); // Se añade como hijo de la luz para que se mueva con ella
-
-  return l;
-}
-
-function updateLightFolders() {
-  // Remove previous folders
-  lightFolders.forEach(f => gui.removeFolder(f));
-  lightFolders.length = 0;
-  lights.forEach((l, i) => {
-    const lf = gui.addFolder(`Light ${i}`);
-    lf.addColor(l, 'color').onChange(() => { l.needsUpdate = true; });
-    lf.add(l, 'intensity', 0, 5).onChange(() => { l.needsUpdate = true; });
-    lf.add(l.position, 'x', -10, 10).onChange(() => { l.needsUpdate = true; });
-    lf.add(l.position, 'y', -10, 10).onChange(() => { l.needsUpdate = true; });
-    lf.add(l.position, 'z', -10, 10).onChange(() => { l.needsUpdate = true; });
-    lf.open();
-    lightFolders.push(lf);
-  });
-}
-
-function adjustLights(count) {
-  while (lights.length > count) {
-    lightGroup.remove(lights.pop());
-  }
-  while (lights.length < count) {
-    lights.push(createSpotLight(lights.length));
-  }
-  updateLightFolders();
-}
-
-// Default 4 lights
-adjustLights(4);
-
-
-const matFolder = gui.addFolder('Base Material');
-matFolder.addColor(material, 'color').onChange(()=>{material.needsUpdate = true;});
-matFolder.add(material, 'transmission', 0, 1).onChange(()=>{material.needsUpdate = true;});
-matFolder.add(material, 'ior', 1, 3).onChange(()=>{material.needsUpdate = true;});
-matFolder.add(material, 'roughness', 0, 1).onChange(()=>{material.needsUpdate = true;});
-matFolder.add(material, 'metalness', 0, 1).onChange(()=>{material.needsUpdate = true;});
-matFolder.open();
-
-// --- 5. Iridiscente (ejemplo) ----------------------------------------------
-// Iridiscente example – add custom properties on the object
 const iridMat = new THREE.MeshPhysicalMaterial({
   color: 0xffffff,
   transmission: 0.5,
@@ -163,43 +59,156 @@ const iridMat = new THREE.MeshPhysicalMaterial({
   roughness: 0.5,
   metalness: 0.5
 });
-iridMat.iridiscence = 0.5;
-iridMat.iridiscenceIOR = 1.4;
+iridMat.iridescence = 0.5;
+iridMat.iridescenceIOR = 1.4;
 
-const iridFolder = gui.addFolder('Iridiscente Mat');
-iridFolder.addColor(iridMat, 'color').onChange(()=>{iridMat.needsUpdate = true;});
-iridFolder.add(iridMat, 'iridiscence', 0, 1).onChange(()=>{iridMat.needsUpdate = true;});
-iridFolder.add(iridMat, 'iridiscenceIOR', 1, 3).onChange(()=>{iridMat.needsUpdate = true;});
-iridFolder.add(iridMat, 'roughness', 0, 1).onChange(()=>{iridMat.needsUpdate = true;});
-iridFolder.add(iridMat, 'metalness', 0, 1).onChange(()=>{iridMat.needsUpdate = true;});
-iridFolder.open();
-// --- 6. Gizmos toggle ----------------------------------------------
-// Gizmo toggle – not part of GUI
-let gizmoVisible = true;
-function toggleGizmo(value) {
-  gizmoVisible = value;
+const chosen = { material: 'base' };
+
+const loader = new GLTFLoader();
+let modelMesh;
+loader.load('metaballs.glb', gltf => {
+  modelMesh = gltf.scene;
+  const box = new THREE.Box3().setFromObject(modelMesh);
+  const center = new THREE.Vector3();
+  box.getCenter(center);
+  modelMesh.position.sub(center);
+  scene.add(modelMesh);
+  
+  if (modelMesh.children.length) {
+    modelMesh.children.forEach(c => { 
+      if (c.isMesh) c.material = chosen.material === 'base' ? material : iridMat; 
+    });
+  }
+}, undefined, err => console.error(err));
+
+// --- GUI PRINCIPAL ---
+const gui = new GUI();
+
+// --- 3. Sistema de Luces y Agrupación en Carpeta ------------------------------
+const lights = [];
+const lightFolders = [];
+const lightGroup = new THREE.Group();
+scene.add(lightGroup);
+
+// Carpeta principal que agrupa TODAS las opciones de luces
+const lightsMainFolder = gui.addFolder('Iluminación');
+
+// Control de estado para los gizmos (checkbox)
+const settings = {
+  gizmosVisible: true,
+  lightCount: 4
+};
+
+// Checkbox para activar/desactivar gizmos dentro de la carpeta de luces
+lightsMainFolder.add(settings, 'gizmosVisible').name('Mostrar Gizmos').onChange(value => {
   lights.forEach(l => {
-    if (l.helper) l.helper.visible = gizmoVisible;
+    if (l.helper) l.helper.visible = value;
   });
-}
-// Add custom GUI control but not part of gui folder
-gui.add({ gizmoToggle: () => toggleGizmo(!gizmoVisible) }, 'gizmoToggle').name('Toggle Gizmos');
-
-// Simple light helper for each point light
-lights.forEach((l, i) => {
-  const helper = new THREE.PointLightHelper(l, 0.2);
-  scene.add(helper);
-  // Store helper for toggling
-  l.helper = helper;
 });
 
-// Update helpers on each frame – single animation loop
-const controls = new OrbitControls(camera, renderer.domElement);
+function createSpotLight(idx) {
+  const l = new THREE.SpotLight(0xffffff, 2, 15, Math.PI / 6, 0.5, 1);
+  const positions = [
+    {x: -4, z: 4},
+    {x: 4, z: 4},
+    {x: 4, z: -4},
+    {x: -4, z: -4}
+  ];
+  const p = positions[idx % positions.length];
+  l.position.set(p.x, 3, p.z);
+  
+  l.target.position.set(0, 0, 0);
+  scene.add(l.target);
+  lightGroup.add(l);
+
+  // SpotLightHelper profesional
+  const helper = new THREE.SpotLightHelper(l, 0xffffff);
+  helper.visible = settings.gizmosVisible; // Respeta el estado actual del checkbox
+  scene.add(helper);
+  l.helper = helper;
+
+  // Esfera indicadora en el foco
+  const sphereGeo = new THREE.SphereGeometry(0.15, 16, 16);
+  const sphereMat = new THREE.MeshBasicMaterial({ color: 0xffffff });
+  const sphere = new THREE.Mesh(sphereGeo, sphereMat);
+  l.add(sphere);
+
+  return l;
+}
+
+function updateLightFolders() {
+  // Limpiar carpetas anteriores de forma segura con .destroy()
+  lightFolders.forEach(f => f.destroy());
+  lightFolders.length = 0;
+
+  lights.forEach((l, i) => {
+    // AQUÍ ESTÁ LA CLAVE: Se añaden COMO HIJAS de `lightsMainFolder` (desplegable)
+    const lf = lightsMainFolder.addFolder(`Luz ${i + 1}`);
+    lf.addColor(l, 'color').onChange(() => { l.color.set(l.color); });
+    lf.add(l, 'intensity', 0, 10).onChange(v => l.intensity = v);
+    lf.add(l.position, 'x', -10, 10);
+    lf.add(l.position, 'y', -10, 10);
+    lf.add(l.position, 'z', -10, 10);
+    lf.close(); // Se cierran por defecto para que esté ordenado
+    lightFolders.push(lf);
+  });
+}
+
+function adjustLights(count) {
+  while (lights.length > count) {
+    const l = lights.pop();
+    lightGroup.remove(l);
+    if (l.helper) {
+      scene.remove(l.helper);
+      l.helper.dispose();
+    }
+  }
+  while (lights.length < count) {
+    lights.push(createSpotLight(lights.length));
+  }
+  updateLightFolders();
+}
+
+// Slider para cambiar la cantidad de luces de 1 a 10 dentro de la carpeta
+lightsMainFolder.add(settings, 'lightCount', 1, 10, 1).name('Cantidad de luces').onChange(v => adjustLights(v));
+
+lightsMainFolder.open();
+
+// Inicializar con 4 luces por defecto
+adjustLights(4);
+
+// --- 4. Controles de Materiales ---------------------------------------------
+const matFolder = gui.addFolder('Base Material');
+matFolder.addColor(material, 'color');
+matFolder.add(material, 'transmission', 0, 1);
+matFolder.add(material, 'ior', 1, 3);
+matFolder.add(material, 'roughness', 0, 1);
+matFolder.add(material, 'metalness', 0, 1);
+matFolder.close();
+
+const iridFolder = gui.addFolder('Iridiscente Mat');
+iridFolder.addColor(iridMat, 'color');
+iridFolder.add(iridMat, 'iridescence', 0, 1);
+iridFolder.add(iridMat, 'iridescenceIOR', 1, 3);
+iridFolder.add(iridMat, 'roughness', 0, 1);
+iridFolder.add(iridMat, 'metalness', 0, 1);
+iridFolder.close();
+
+const materialFolder = gui.addFolder('MATERIAL ELEGIDO');
+materialFolder.add(chosen, 'material', ['base', 'iridiscente']).onChange(v => {
+  if (modelMesh && modelMesh.children) {
+    modelMesh.children.forEach(c => { 
+      if (c.isMesh) c.material = v === 'base' ? material : iridMat; 
+    });
+  }
+});
+materialFolder.open();
+
+// --- 5. Bucle de Animación --------------------------------------------------
 function animate() {
   requestAnimationFrame(animate);
   if (modelMesh) modelMesh.rotation.y += 0.005;
   
-  // Comprobación de seguridad para evitar que falle si un helper es undefined
   lights.forEach(l => { 
     if (l.helper && typeof l.helper.update === 'function') {
       l.helper.update(); 
@@ -209,34 +218,15 @@ function animate() {
   controls.update();
   renderer.render(scene, camera);
 }
-// --- 5. Light count control ----------------------------------------------
-const lightControl = {
-  count: lights.length
-};
-gui.add(lightControl, 'count', 1, 10, 1).name('Number of lights').onChange(v => adjustLights(v));
-
-// --- 6. Animación ------------------------------------------------------------
-// Start animation
 animate();
 
-// --- 7. Ajustar tamaño al redimensionar --------------------------------------
+// --- 6. Redimensionar ventana -----------------------------------------------
 window.addEventListener('resize', () => {
   const w = window.innerWidth, h = window.innerHeight;
   renderer.setSize(w, h);
-  camera.aspect = w/h;
+  camera.aspect = w / h;
   camera.updateProjectionMatrix();
 });
-
-// --- 8. Material ELEGIDO ----------------------------------------------
-const chosen = {
-  material: 'base' // 'base' or 'iridiscente'
-};
-const materialFolder = gui.addFolder('MATERIAL ELEGIDO');
-materialFolder.add(chosen, 'material', ['base', 'iridiscente']).onChange(v => {
-  modelMesh.material = v === 'base' ? material : iridMat;
-});
-materialFolder.open();
-
 </script>
 </body>
 </html>

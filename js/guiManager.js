@@ -319,6 +319,8 @@ export function setupGUI(sceneData) {
     refreshAllDropdowns,
     applyTextureToMaterial,
     applyAllMaterialTextures,
+    materialTextureControllers,
+    lightTexController,
     thicknessControl
   };
 }

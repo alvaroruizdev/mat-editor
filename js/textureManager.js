@@ -10,28 +10,34 @@ class TextureManager {
     this.onTexturesChanged = null;
   }
 
+  // Ajustes por defecto de cada tipo de textura (incluye offsetSpeed)
+  defaultSettings(type) {
+    if (type === 'gradiente') {
+      return {
+        stop1Color: '#ae00ff',
+        stop2Color: '#0755fe',
+        stop3Color: '#ffffff',
+        offsetSpeed: 0 // desplazamiento de UVs en Y (unidades/segundo)
+      };
+    }
+    return {
+      innerRadius: 10,
+      outerRadius: 200,
+      colorCenter: '#ffffff',
+      colorMiddle: '#00eeff',
+      colorOuter: '#da8aff',
+      offsetSpeed: 0
+    };
+  }
+
   createTexture(type = 'radial', customSettings = null) {
     this.counters[type]++;
     const id = `${type}${this.counters[type]}`;
 
-    let settings;
-    if (customSettings) {
-      settings = JSON.parse(JSON.stringify(customSettings));
-    } else if (type === 'radial') {
-      settings = {
-        innerRadius: 10,
-        outerRadius: 200,
-        colorCenter: '#ffffff',
-        colorMiddle: '#00eeff',
-        colorOuter: '#da8aff'
-      };
-    } else {
-      settings = {
-        stop1Color: '#ae00ff',
-        stop2Color: '#0755fe',
-        stop3Color: '#ffffff'
-      };
-    }
+    const settings = JSON.parse(JSON.stringify({
+      ...this.defaultSettings(type),
+      ...(customSettings || {})
+    }));
 
     const { canvas, texture } = this.createTexturePlumbing(type);
 
@@ -53,6 +59,10 @@ class TextureManager {
 
     const texture = new THREE.CanvasTexture(canvas);
     texture.colorSpace = THREE.SRGBColorSpace;
+    // RepeatWrapping: a offset 0 el aspecto es idéntico (los UVs del modelo van 0..1),
+    // pero al desplazar los UVs la textura repite en vez de estirar el borde.
+    texture.wrapS = THREE.RepeatWrapping;
+    texture.wrapT = THREE.RepeatWrapping;
     if (type === 'gradiente') {
       texture.generateMipmaps = false;
       texture.minFilter = THREE.LinearFilter;
@@ -87,6 +97,17 @@ class TextureManager {
 
     texData.texture.needsUpdate = true;
     this.updateInspector();
+  }
+
+  // Avanza el offset en Y de cada textura según su velocidad (unidades/segundo).
+  // Lo llama el bucle de animación con el deltaTime.
+  updateOffsets(delta) {
+    this.textures.forEach(texData => {
+      const speed = texData.settings && texData.settings.offsetSpeed;
+      if (!speed) return;
+      const offset = texData.texture.offset;
+      offset.y = (offset.y + speed * delta) % 1;
+    });
   }
 
   deleteTexture(id) {
@@ -166,7 +187,11 @@ class TextureManager {
 
       // Crear textura con la misma configuración (filtros incluidos) que una nueva
       const { canvas, texture } = this.createTexturePlumbing(type);
-      const settings = data.settings ? JSON.parse(JSON.stringify(data.settings)) : null;
+      // defaults + guardado: así los JSON antiguos se completan con lo que falte
+      const settings = {
+        ...this.defaultSettings(type),
+        ...(data.settings ? JSON.parse(JSON.stringify(data.settings)) : {})
+      };
 
       this.textures.set(id, { id, type, settings, canvas, texture });
       this.redrawTexture(id);

@@ -1,6 +1,7 @@
 import * as THREE from "three";
 import { GLTFLoader } from "three/addons/loaders/GLTFLoader.js";
 import { OrbitControls } from "three/addons/controls/OrbitControls.js";
+import { textureManager } from './textureManager.js';
 
 export function setupScene() {
   const canvas = document.getElementById('canvas');
@@ -58,6 +59,11 @@ export function setupScene() {
 
   const chosen = { material: 'iridiscente' };
 
+  // --- Rotación del objeto (radianes por segundo) ---
+  const objectSettings = {
+    rotationSpeed: 0.3 // ≈ el 0.005 rad/frame anterior a 60 fps
+  };
+
   // --- Cargar Modelo ---
   let modelMesh = null;
   const loader = new GLTFLoader();
@@ -92,6 +98,7 @@ export function setupScene() {
     angle: Math.PI / 4, // Ligeramente más abierto para abarcar mejor el objeto
     distance: 4,
     height: 3, // Altura (Y) de todas las luces
+    rotationSpeed: 0, // Rotación del rig de luces (rad/s)
     textureId: 'ninguna'
   };
 
@@ -156,15 +163,26 @@ export function setupScene() {
     }
   }
 
-  // --- Loop de Animación ---
+  // --- Loop de Animación (deltaTime: velocidades en unidades por segundo) ---
+  const clock = new THREE.Clock();
+
   function animate() {
     requestAnimationFrame(animate);
-    if (modelMesh) modelMesh.rotation.y += 0.005;
-    
+
+    // clamp para evitar saltos enormes al volver de una pestaña inactiva
+    const delta = Math.min(clock.getDelta(), 0.1);
+
+    // Rotación del objeto y del rig de luces (radianes/segundo)
+    if (modelMesh) modelMesh.rotation.y += objectSettings.rotationSpeed * delta;
+    lightGroup.rotation.y += lightGlobalSettings.rotationSpeed * delta;
+
+    // Desplazamiento de UVs de las texturas (unidades/segundo)
+    textureManager.updateOffsets(delta);
+
     // Actualizar helpers en cada frame obligatoriamente
-    lights.forEach(l => { 
+    lights.forEach(l => {
       if (l.helper && typeof l.helper.update === 'function') {
-        l.helper.update(); 
+        l.helper.update();
       }
     });
 
@@ -181,6 +199,7 @@ export function setupScene() {
 
   return {
     scene, camera, renderer, materialConfigs, chosen, applySelectedMaterial,
-    lights, lightGlobalSettings, updateLightPositions, updateLightProperties, adjustLights
+    lights, lightGroup, lightGlobalSettings, objectSettings, updateLightPositions, updateLightProperties, adjustLights,
+    getModelMesh: () => modelMesh
   };
 }

@@ -14,7 +14,7 @@ const clamp = (v, min, max) => Math.min(max, Math.max(min, v));
 
 export function setupGUI(sceneData) {
   const gui = new GUI();
-  const { materialConfigs, chosen, applySelectedMaterial, lightGlobalSettings, updateLightPositions, updateLightProperties, adjustLights } = sceneData;
+  const { materialConfigs, chosen, applySelectedMaterial, lightGlobalSettings, objectSettings, updateLightPositions, updateLightProperties, adjustLights } = sceneData;
   const getTex = id => textureManager.getTexture(id);
 
   // --- Aplicación de texturas a materiales (reutilizable) ---
@@ -40,7 +40,7 @@ export function setupGUI(sceneData) {
   // --- 0. Estado del proyecto ---
   function buildProjectState() {
     return {
-      version: 1,
+      version: 2,
       textures: textureManager.exportState(),
       materials: {
         base: {
@@ -53,6 +53,7 @@ export function setupGUI(sceneData) {
         }
       },
       lights: { ...lightGlobalSettings },
+      object: { ...objectSettings },
       chosenMaterial: chosen.material
     };
   }
@@ -107,6 +108,7 @@ export function setupGUI(sceneData) {
   lightsFolder.add(lightGlobalSettings, 'angle', 0.1, Math.PI / 3).name('Ángulo Apertura').onChange(() => updateLightProperties(getTex));
   lightsFolder.add(lightGlobalSettings, 'distance', 1, 10).name('Distancia al Centro').onChange(updateLightPositions);
   lightsFolder.add(lightGlobalSettings, 'height', 0, 10, 0.1).name('Altura (Y)').onChange(updateLightPositions);
+  lightsFolder.add(lightGlobalSettings, 'rotationSpeed', 0, 3, 0.01).name('Velocidad rotación (rad/s)');
 
   const lightTexController = lightsFolder.add(lightGlobalSettings, 'textureId', textureManager.getTextureIds()).name('Textura Emisión').onChange(() => updateLightProperties(getTex));
   lightsFolder.close();
@@ -137,6 +139,9 @@ export function setupGUI(sceneData) {
     const texData = textureManager.textures.get(id);
     if (!texData) return;
 
+    // Compatibilidad con proyectos antiguos sin el campo de desplazamiento
+    if (typeof texData.settings.offsetSpeed !== 'number') texData.settings.offsetSpeed = 0;
+
     const subFolder = texFolder.addFolder(id);
     textureSubFolders.set(id, subFolder);
 
@@ -151,6 +156,8 @@ export function setupGUI(sceneData) {
       subFolder.addColor(texData.settings, 'stop2Color').name('Color 2').onChange(() => textureManager.redrawTexture(id));
       subFolder.addColor(texData.settings, 'stop3Color').name('Color 3').onChange(() => textureManager.redrawTexture(id));
     }
+
+    subFolder.add(texData.settings, 'offsetSpeed', -2, 2, 0.01).name('Velocidad Offset Y (u/s)');
 
     subFolder.add({
       delete: () => {
@@ -172,10 +179,11 @@ export function setupGUI(sceneData) {
     textureManager.textures.forEach((_tex, id) => buildTextureConfigFolder(id));
   }
 
-  // --- 4. Materiales ---
-  const matChoiceFolder = gui.addFolder('MATERIAL ELEGIDO');
-  matChoiceFolder.add(chosen, 'material', ['base', 'iridiscente']).onChange(() => applySelectedMaterial());
-  matChoiceFolder.open();
+  // --- 4. Objeto (material elegido + rotación) ---
+  const objectFolder = gui.addFolder('OBJETO');
+  objectFolder.add(chosen, 'material', ['base', 'iridiscente']).name('Material').onChange(() => applySelectedMaterial());
+  objectFolder.add(objectSettings, 'rotationSpeed', 0, 3, 0.01).name('Velocidad rotación (rad/s)');
+  objectFolder.open();
 
   // Controladores de textura de materiales para actualizar opciones dinámicamente
   const materialTextureControllers = [];
@@ -274,12 +282,16 @@ export function setupGUI(sceneData) {
     if (data.lights) Object.assign(lightGlobalSettings, data.lights);
     lightGlobalSettings.count = clamp(Math.round(lightGlobalSettings.count ?? 4), 1, 8);
     lightGlobalSettings.height = clamp(lightGlobalSettings.height ?? 3, 0, 10);
+    if (typeof lightGlobalSettings.rotationSpeed !== 'number') lightGlobalSettings.rotationSpeed = 0;
     adjustLights(lightGlobalSettings.count, getTex);
     updateLightPositions();
     updateLightProperties(getTex);
     sceneData.lights.forEach(l => { if (l.helper) l.helper.visible = lightGlobalSettings.gizmosVisible; });
 
-    // 5) Material elegido
+    // 5) Objeto: rotación + material elegido
+    if (data.object) Object.assign(objectSettings, data.object);
+    if (typeof objectSettings.rotationSpeed !== 'number') objectSettings.rotationSpeed = 0.3;
+
     if (data.chosenMaterial) chosen.material = data.chosenMaterial;
     applySelectedMaterial();
 
@@ -321,7 +333,8 @@ export function setupGUI(sceneData) {
     applyAllMaterialTextures,
     materialTextureControllers,
     lightTexController,
-    thicknessControl
+    thicknessControl,
+    objectSettings
   };
 }
 

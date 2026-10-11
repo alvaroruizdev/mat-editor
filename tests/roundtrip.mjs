@@ -115,7 +115,7 @@ try {
   await waitReady();
 
   const setup = await cdp.eval(`(() => {
-    const { api, sceneData } = window.matEditor;
+    const { api, sceneData, textureManager } = window.matEditor;
     const ctrls = api.gui.controllersRecursive();
     const byName = n => {
       const c = ctrls.find(c => c._name === n);
@@ -128,9 +128,25 @@ try {
     byName('Ángulo Apertura').setValue(0.2);
     byName('Altura (Y)').setValue(8);
     byName('Intensidad').setValue(11);
+
+    // Velocidad de rotación: hay DOS controles con el mismo nombre, se distinguen por carpeta
+    const rotCtrls = ctrls.filter(c => c._name === 'Velocidad rotación (rad/s)');
+    if (rotCtrls.length !== 2) throw new Error('Se esperaban 2 controles "Velocidad rotación (rad/s)", hay ' + rotCtrls.length);
+    const rotOf = title => rotCtrls.find(c => c.parent && c.parent._title === title);
+    const objRot = rotOf('OBJETO');
+    const lightRot = rotOf('Iluminación');
+    if (!objRot || !lightRot) throw new Error('No localizo los controles por carpeta: ' + rotCtrls.map(c => c.parent && c.parent._title));
+    objRot.setValue(1.5);
+    lightRot.setValue(0.75);
+
     // Materiales: iridiscente usa gradiente1 como MAPA DE GROSOR, base usa radial1
     api.materialTextureControllers[1].setValue('gradiente1');
     api.materialTextureControllers[0].setValue('radial1');
+
+    // Desplazamiento de UVs por textura
+    textureManager.textures.get('radial1').settings.offsetSpeed = 0.4;
+    textureManager.textures.get('gradiente1').settings.offsetSpeed = -0.3;
+
     const mi = sceneData.materialConfigs.iridiscente;
     mi.config.useAsThicknessMap = true;
     mi.material.roughness = 0.42;
@@ -145,9 +161,14 @@ try {
     sceneData.applySelectedMaterial();
     api.refreshAllDropdowns();
     return {
-      ctrls: ctrls.filter(c => c._name).map(c => c._name)
+      ctrls: ctrls.filter(c => c._name).map(c => c._name),
+      folders: api.gui.foldersRecursive().map(f => f._title),
+      rotValues: rotCtrls.map(c => c.getValue())
     };
   })()`);
+  console.log('  carpetas GUI:', setup.folders.join(' | '));
+  check('existe la sección OBJETO (antes MATERIAL ELEGIDO)', setup.folders.includes('OBJETO'));
+  check('ya no existe MATERIAL ELEGIDO', !setup.folders.includes('MATERIAL ELEGIDO'));
   console.log('  controles GUI:', setup.ctrls.join(' | '));
 
   await sleep(1200); // que se aplique y renderice
@@ -166,10 +187,14 @@ try {
   const exported = JSON.parse(exportedText);
   console.log('  JSON exportado en', PROJECT_FILE, `(${exportedText.length} bytes)`);
   console.log('  lights exportadas:', stable(exported.lights));
+  console.log('  object exportado:', stable(exported.object));
 
   check('el JSON exportado incluye distance', typeof exported.lights.distance === 'number', String(exported.lights.distance));
   check('el JSON exportado incluye angle', typeof exported.lights.angle === 'number', String(exported.lights.angle));
   check('el JSON exportado incluye altura (height)', exported.lights.height === 8, String(exported.lights.height));
+  check('el JSON exportado incluye rotación de luces', exported.lights.rotationSpeed === 0.75, String(exported.lights.rotationSpeed));
+  check('el JSON exportado incluye rotación del objeto', exported.object && exported.object.rotationSpeed === 1.5, stable(exported.object));
+  check('el JSON exportado incluye offsetSpeed de textura', exported.textures.radial1.settings.offsetSpeed === 0.4 && exported.textures.gradiente1.settings.offsetSpeed === -0.3, stable({ r: exported.textures.radial1.settings.offsetSpeed, g: exported.textures.gradiente1.settings.offsetSpeed }));
 
   // ============ FASE 2: recargar en frío e importar el mismo fichero ============
   console.log('\n== FASE 2: recargar e importar el fichero exportado ==');
@@ -187,6 +212,9 @@ try {
     const mi = sceneData.materialConfigs.iridiscente;
     return JSON.stringify({
       state: api.buildProjectState(),
+      rotCtrls: api.gui.controllersRecursive()
+        .filter(c => c._name === 'Velocidad rotación (rad/s)')
+        .map(c => c.getValue()),
       liveLights: sceneData.lights.map(l => ({
         angle: l.angle, intensity: l.intensity,
         color: '#' + l.color.getHexString(),
@@ -210,6 +238,7 @@ try {
   const eq = (name, a, b) => check(name, stable(a) === stable(b), stable(a) === stable(b) ? '' : `\n     exportado: ${stable(a)}\n     tras import: ${stable(b)}`);
 
   eq('luces idénticas tras importar', exported.lights, after.state.lights);
+  eq('objeto idéntico tras importar', exported.object, after.state.object);
   eq('materiales idénticos tras importar', exported.materials, after.state.materials);
   eq('textura elegida del iridiscente', exported.materials.iridiscente.config.texture, after.state.materials.iridiscente.config.texture);
   eq('material elegido', exported.chosenMaterial, after.state.chosenMaterial);
@@ -229,10 +258,38 @@ try {
   check('altura (Y) aplicada en la escena', L.every(l => Math.abs(l.y - 8) < 1e-6), stable(L.map(l => l.y)));
   check('distancia (horizontal) aplicada en la escena', L.every(l => Math.abs(Math.hypot(l.x, l.z) - 9) < 1e-3), stable(L.map(l => +Math.hypot(l.x, l.z).toFixed(3))));
   check('gizmos visibles restaurados', after.state.lights.gizmosVisible === true);
+  check('control de rotación del objeto en la GUI', after.rotCtrls && after.rotCtrls.includes(1.5), stable(after.rotCtrls));
+  check('control de rotación de luces en la GUI', after.rotCtrls && after.rotCtrls.includes(0.75), stable(after.rotCtrls));
+
+  // --- Animación real (deltaTime) ---
+  console.log('\n== ANIMACIÓN (1.2 s) ==');
+  await waitFor(() => cdp.eval('!!window.matEditor.sceneData.getModelMesh()'), { label: 'modelo GLB cargado' });
+  const anim = JSON.parse(await cdp.eval(`(async () => {
+    const { sceneData, textureManager } = window.matEditor;
+    const wrap = v => ((v % 1) + 1) % 1;
+    const y0 = sceneData.getModelMesh().rotation.y;
+    const r0 = sceneData.lightGroup.rotation.y;
+    const o0 = textureManager.getTexture('radial1').offset.y;
+    await new Promise(r => setTimeout(r, 1200));
+    return JSON.stringify({
+      dModel: sceneData.getModelMesh().rotation.y - y0,
+      dLights: sceneData.lightGroup.rotation.y - r0,
+      dOffset: wrap(textureManager.getTexture('radial1').offset.y - o0),
+      dOffsetGrad: wrap(textureManager.getTexture('gradiente1').offset.y - o0)
+    });
+  })()`));
+  console.log('  ', stable(anim));
+  check('el objeto rota con deltaTime (≈1.5 rad en 1.2 s)', anim.dModel > 0.6, anim.dModel.toFixed(3));
+  check('el rig de luces rota (≈0.75 rad en 1.2 s)', anim.dLights > 0.3, anim.dLights.toFixed(3));
+  check('la textura radial desplaza sus UVs', anim.dOffset > 0.1, anim.dOffset.toFixed(3));
+  check('la textura gradiente desplaza sus UVs (velocidad negativa → wrap)', anim.dOffsetGrad > 0.1, anim.dOffsetGrad.toFixed(3));
+
+  await cdp.send('Page.captureScreenshot', { format: 'png' }).then(s =>
+    writeFileSync(path.join(OUT, '3-animado.png'), Buffer.from(s.data, 'base64')));
 
   const failed = results.filter(r => !r.ok);
   console.log(`\n${failed.length ? 'RESULT=FAIL' : 'RESULT=PASS'}  (${results.length - failed.length}/${results.length})`);
-  console.log('Capturas: ' + path.join(OUT, '1-antes.png') + ' y ' + path.join(OUT, '2-despues.png'));
+  console.log('Capturas: ' + path.join(OUT, '1-antes.png') + ', ' + path.join(OUT, '2-despues.png') + ' y ' + path.join(OUT, '3-animado.png'));
   cleanup();
   process.exit(failed.length ? 1 : 0);
 } catch (err) {

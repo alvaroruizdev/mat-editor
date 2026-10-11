@@ -91,6 +91,7 @@ export function setupScene() {
     intensity: 5,
     angle: Math.PI / 4, // Ligeramente más abierto para abarcar mejor el objeto
     distance: 4,
+    height: 3, // Altura (Y) de todas las luces
     textureId: 'ninguna'
   };
 
@@ -102,7 +103,7 @@ export function setupScene() {
     lights.forEach((l, idx) => {
       const dir = basePositions[idx % basePositions.length];
       const len = Math.sqrt(dir.x * dir.x + dir.z * dir.z);
-      l.position.set((dir.x / len) * lightGlobalSettings.distance, 3, (dir.z / len) * lightGlobalSettings.distance);
+      l.position.set((dir.x / len) * lightGlobalSettings.distance, lightGlobalSettings.height, (dir.z / len) * lightGlobalSettings.distance);
       l.updateMatrixWorld();
       if (l.helper) l.helper.update();
     });
@@ -126,7 +127,7 @@ export function setupScene() {
 
     const dir = basePositions[idx % basePositions.length];
     const len = Math.sqrt(dir.x * dir.x + dir.z * dir.z);
-    l.position.set((dir.x / len) * lightGlobalSettings.distance, 3, (dir.z / len) * lightGlobalSettings.distance);
+    l.position.set((dir.x / len) * lightGlobalSettings.distance, lightGlobalSettings.height, (dir.z / len) * lightGlobalSettings.distance);
     
     // Configurar target al centro de la escena
     l.target.position.set(0, 0, 0);

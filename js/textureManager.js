@@ -33,6 +33,20 @@ class TextureManager {
       };
     }
 
+    const { canvas, texture } = this.createTexturePlumbing(type);
+
+    const texData = { id, type, settings, canvas, texture };
+    this.textures.set(id, texData);
+
+    this.redrawTexture(id);
+
+    if (this.onTexturesChanged) this.onTexturesChanged();
+    return id;
+  }
+
+  // Crea el canvas + CanvasTexture con la configuración correcta para cada tipo.
+  // Se usa tanto al crear texturas nuevas como al importar un proyecto.
+  createTexturePlumbing(type) {
     const canvas = document.createElement('canvas');
     canvas.width = type === 'radial' ? 512 : 16;
     canvas.height = type === 'radial' ? 512 : 256;
@@ -45,13 +59,7 @@ class TextureManager {
       texture.magFilter = THREE.LinearFilter;
     }
 
-    const texData = { id, type, settings, canvas, texture };
-    this.textures.set(id, texData);
-
-    this.redrawTexture(id);
-
-    if (this.onTexturesChanged) this.onTexturesChanged();
-    return id;
+    return { canvas, texture };
   }
 
   redrawTexture(id) {
@@ -139,29 +147,32 @@ class TextureManager {
   }
 
   importState(savedTextures) {
-    // Limpiar actuales
-    Array.from(this.textures.keys()).forEach(id => this.deleteTexture(id));
+    // Limpiar actuales en bloque (sin notificar una vez por textura)
+    this.textures.forEach(texData => texData.texture.dispose());
+    this.textures.clear();
     this.counters = { radial: 0, gradiente: 0 };
 
-    for (const [id, data] of Object.entries(savedTextures)) {
-      // Extraer tipo y contador si coincide con radialX / gradienteX
-      const match = id.match(/([a-zA-Z]+)(\d+)/);
-      if (match) {
-        const type = match[1];
-        const num = parseInt(match[2], 10);
-        if (this.counters[type] < num) this.counters[type] = num;
-      }
-      
-      // Crear textura con los ajustes guardados
-      const canvas = document.createElement('canvas');
-      canvas.width = data.type === 'radial' ? 512 : 16;
-      canvas.height = data.type === 'radial' ? 512 : 256;
-      const texture = new THREE.CanvasTexture(canvas);
-      texture.colorSpace = THREE.SRGBColorSpace;
+    for (const [id, data] of Object.entries(savedTextures || {})) {
+      const type = data.type === 'gradiente' ? 'gradiente' : 'radial';
 
-      this.textures.set(id, { id, type: data.type, settings: data.settings, canvas, texture });
+      // Extraer contador si el id coincide con radialX / gradienteX
+      const match = id.match(/^([a-zA-Z]+?)(\d+)$/);
+      if (match) {
+        const counterType = match[1];
+        const num = parseInt(match[2], 10);
+        if (this.counters[counterType] === undefined) this.counters[counterType] = 0;
+        if (this.counters[counterType] < num) this.counters[counterType] = num;
+      }
+
+      // Crear textura con la misma configuración (filtros incluidos) que una nueva
+      const { canvas, texture } = this.createTexturePlumbing(type);
+      const settings = data.settings ? JSON.parse(JSON.stringify(data.settings)) : null;
+
+      this.textures.set(id, { id, type, settings, canvas, texture });
       this.redrawTexture(id);
     }
+
+    this.updateInspector();
     if (this.onTexturesChanged) this.onTexturesChanged();
   }
 }

@@ -1,0 +1,90 @@
+<!doctype html>
+<html lang="es">
+<head><link rel="icon" href="data:,"><meta charset="utf-8"><title>test import/export</title></head>
+<body>
+<div id="texture-inspector-container"><span>INSPECTOR DE TEXTURAS</span></div>
+<canvas id="canvas"></canvas>
+<pre id="result">RUNNING</pre>
+<script type="importmap">
+{
+  "imports": {
+    "three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js",
+    "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.162.0/examples/jsm/",
+    "lil-gui": "https://cdn.jsdelivr.net/npm/lil-gui@0.21.0/dist/lil-gui.esm.min.js"
+  }
+}
+</script>
+<script type="module">
+import { setupScene } from './js/sceneSetup.js';
+import { setupGUI } from './js/guiManager.js';
+import { textureManager } from './js/textureManager.js';
+
+const log = [];
+const assert = (name, cond, extra = '') => log.push(`${cond ? 'PASS' : 'FAIL'} :: ${name}${extra ? ' :: ' + extra : ''}`);
+
+function finish() {
+  const el = document.getElementById('result');
+  const failed = log.some(l => l.startsWith('FAIL') || l.startsWith('ERROR'));
+  el.textContent = (failed ? 'RESULT=FAIL\n' : 'RESULT=PASS\n') + log.join('\n');
+}
+
+try {
+  const sceneData = setupScene();
+  const api = setupGUI(sceneData);
+  const m = sceneData.materialConfigs.iridiscente.material;
+  const mBase = sceneData.materialConfigs.base.material;
+
+  assert('2 texturas por defecto', Object.keys(api.buildProjectState().textures).length === 2);
+  assert('map inicial asignado', !!m.map);
+
+  const state = api.buildProjectState();
+  state.materials.iridiscente.properties.roughness = 0.77;
+  state.materials.iridiscente.properties.color = '#ff0000';
+  state.materials.iridiscente.properties.iridescence = 0.42;
+  state.materials.iridiscente.properties.iridescenceThicknessRange = [150, 1234];
+  state.materials.base.properties.color = '#00ff00';
+  state.lights.height = 5;
+  state.lights.count = 2;
+  state.lights.intensity = 7;
+  state.chosenMaterial = 'base';
+
+  const exported = JSON.parse(JSON.stringify(state));
+
+  m.roughness = 0.0; m.color.set('#000000'); m.iridescence = 0.0;
+  mBase.color.set('#123456');
+  m.map = null;
+  sceneData.lightGlobalSettings.height = 1;
+  sceneData.lightGlobalSettings.count = 4;
+  sceneData.chosen.material = 'iridiscente';
+
+  api.loadProject(exported);
+
+  assert('roughness restaurada', Math.abs(m.roughness - 0.77) < 1e-6, String(m.roughness));
+  assert('color iridiscente restaurado', m.color.getHexString() === 'ff0000', m.color.getHexString());
+  assert('color base restaurado', mBase.color.getHexString() === '00ff00', mBase.color.getHexString());
+  assert('iridescence restaurada', Math.abs(m.iridescence - 0.42) < 1e-6, String(m.iridescence));
+  assert('thickness range restaurado', JSON.stringify(m.iridescenceThicknessRange) === '[150,1234]', JSON.stringify(m.iridescenceThicknessRange));
+  assert('GUI thickness sincronizado', api.thicknessControl.min === 150 && api.thicknessControl.max === 1234, JSON.stringify(api.thicknessControl));
+  assert('altura de luces aplicada', sceneData.lights.every(l => Math.abs(l.position.y - 5) < 1e-6), sceneData.lights.map(l => l.position.y).join(','));
+  assert('nº de luces aplicado', sceneData.lights.length === 2, String(sceneData.lights.length));
+  assert('intensidad de luces aplicada', sceneData.lights.every(l => l.intensity === 7));
+  assert('material elegido aplicado', sceneData.chosen.material === 'base');
+
+  const texIds = Object.keys(exported.textures);
+  assert('texturas importadas intactas', textureManager.getTextureIds().length - 1 === texIds.length, String(textureManager.getTextureIds()));
+  assert('map re-vinculado (no null)', !!m.map, String(m.map));
+  assert('map apunta a textura importada', m.map === textureManager.getTexture(exported.materials.iridiscente.config.texture), 'tex=' + exported.materials.iridiscente.config.texture);
+
+  Array.from(textureManager.textures.keys()).forEach(id => textureManager.deleteTexture(id));
+  assert('map limpiado tras borrar texturas', m.map === null && mBase.map === null);
+  api.loadProject(exported);
+  assert('map re-vinculado tras borrado total', !!m.map && m.map === textureManager.getTexture(exported.materials.iridiscente.config.texture));
+
+  finish();
+} catch (e) {
+  log.push('ERROR :: ' + (e && e.stack ? e.stack : e));
+  finish();
+}
+</script>
+</body>
+</html>
